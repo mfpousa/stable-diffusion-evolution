@@ -73,8 +73,7 @@ def generate(image,
              ddim_steps,
              batch_size,
              seed,
-             image_history,
-             image_history_offset):
+             image_history):
     samples, _ = backend.generate(
         image,
         prompt,
@@ -104,6 +103,5 @@ def generate(image,
             )
         )
         out.append("")
-    out += update_image_history(image_history, image_history_offset)
     out.append(image_history)
     return out
