@@ -1,4 +1,7 @@
-output
-ldm
-**/__pycache__
-**/latent_diffusion.egg-info
+/output
+/ldm
+__pycache__
+latent_diffusion.egg-info
+/src
+.mypy_cache
+/models
