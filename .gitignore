@@ -1,7 +1,6 @@
 /output
-/ldm
 __pycache__
 latent_diffusion.egg-info
 /src
 .mypy_cache
-/models/ldm/stable-diffusion-v1/model.ckpt
+/models/ldm/stable-diffusion-v1/*
