@@ -4,4 +4,4 @@ __pycache__
 latent_diffusion.egg-info
 /src
 .mypy_cache
-/models
+/models/ldm/stable-diffusion-v1/model.ckpt
