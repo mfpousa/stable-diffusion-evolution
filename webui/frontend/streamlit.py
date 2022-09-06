@@ -78,7 +78,7 @@ with editors_tab:
     editors_column, tools_column = st.columns([3, 1])
 
 with main_tab:
-    with inputs_column_right:
+    with inputs_column_left:
         input_image = st.file_uploader(
             "Input image", type=["png", "jpg"], accept_multiple_files=False
         )
@@ -205,7 +205,16 @@ with editors_tab:
 
 
 with main_tab:
+
     with inputs_column_left:
+        if image is not None:
+            st.image(image)
+            if input_image is not None and st.session_state.get("image") is not None:
+                st.button("Use input image instead", on_click=clear_image_override)
+            if input_image is None and st.session_state.get("image") is not None:
+                st.button("Clear image", on_click=clear_image_override)
+
+    with inputs_column_right:
         prompt = st.text_area("Prompt")
         seed = st.text_input("Seed")
         ddim_steps = st.slider("Quality", min_value=1, max_value=50, step=1, value=10)
@@ -218,14 +227,6 @@ with main_tab:
                 step=0.1,
                 value=0.5,
             )
-
-    with inputs_column_right:
-        if image is not None:
-            st.image(image)
-            if input_image is not None and st.session_state.get("image") is not None:
-                st.button("Use input image instead", on_click=clear_image_override)
-            if input_image is None and st.session_state.get("image") is not None:
-                st.button("Clear image", on_click=clear_image_override)
 
     st.button(
         "Generate {} image{}".format(batch_size, "s" if batch_size > 1 else ""),
