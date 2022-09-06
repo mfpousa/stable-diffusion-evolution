@@ -1,13 +1,13 @@
 import mimetypes
 from typing import Any, List, Tuple, Union
-
 from PIL.Image import Image as ImageType
-from src.backend.split_subprompts import split_weighted_subprompts
+from webui.backend.split_subprompts import split_weighted_subprompts
 import numpy as np
 import torch
 import os
 import re
-from PIL import Image
+from PIL import Image, ImageFilter
+from PIL.Image import Image as ImageType
 import torch
 import numpy as np
 from random import randint
@@ -18,11 +18,12 @@ from itertools import islice
 from einops import rearrange
 import time
 from pytorch_lightning import seed_everything
-from torch import autocast  # type: ignore
+from torch import Tensor, autocast  # type: ignore
 from einops import rearrange, repeat
 from contextlib import nullcontext
 from ldm.util import instantiate_from_config
 from transformers import logging
+from torchvision.transforms import transforms
 
 logging.set_verbosity_error()
 mimetypes.init()
@@ -40,8 +41,10 @@ unet_bs = 1
 device = "cuda"
 full_precision = False
 outdir = os.path.join("output")
-fallback_image = Image.fromarray(
-    255 * np.ones((Height, Width, 3), np.uint8))
+fallback_image = Image.fromarray(255 * np.ones((Height, Width, 3), np.uint8))
+
+ToTensor = transforms.ToTensor()
+ToPIL = transforms.ToPILImage()
 
 
 def chunk(it, size):
@@ -74,6 +77,38 @@ def load_img(image, h0, w0):
     image = image[None].transpose(0, 3, 1, 2)
     image = torch.from_numpy(image)
     return 2.0 * image - 1.0
+
+
+def blur(tensor: Tensor, radius: int):
+    image = ToPIL(tensor)
+    return ToTensor(image.filter(ImageFilter.GaussianBlur(radius))).to(device)
+
+
+def expand_mask(mask: Tensor, radius: int):
+    blurred_mask = blur(mask, radius)
+    expanded_mask = (blurred_mask * 1000).clamp(0, 1)
+    return expanded_mask.to(device)
+
+
+def crop(image: ImageType, target_width: int, target_height: int):
+    width, height = image.size
+    delta_width = width - target_width
+    delta_height = height - target_height
+    horizontal_margin = int(delta_width / 2)
+    vertical_margin = int(delta_height / 2)
+    return image.crop(
+        (
+            horizontal_margin,
+            vertical_margin,
+            target_width + horizontal_margin,
+            target_height + vertical_margin,
+        )
+    )
+
+
+def load_mask(mask: ImageType, target_width: int, target_height: int):
+    cropped_mask = crop(mask, target_width, target_height)
+    return ToTensor(cropped_mask.convert("L")).to(device)
 
 
 config = "models/v1-inference.yaml"
@@ -116,13 +151,16 @@ del sd
 
 
 def generate(
-    image,
+    image: ImageType,
+    mask: ImageType,
     prompt: str,
     strength: float,
     ddim_steps: int,
     batch_size: int,
     seed: Union[str, int],
-    image_history: List[ImageType],
+    masking_render_full: bool,
+    masking_render_padding: int = 15,
+    mask_fading: int = 10,
 ):
     # set up variables and models
     strength = 0.99 if not image else strength
@@ -130,6 +168,14 @@ def generate(
     init_image = load_img(fallback_image if not image else image, Height, Width).to(
         device
     )
+    init_mask = load_mask(mask if mask is not None else fallback_image, Width, Height)
+    expanded_mask = (
+        ToTensor(fallback_image).to(device)
+        if masking_render_full
+        else expand_mask(init_mask, masking_render_padding)
+    )
+    blurred_mask = blur(init_mask, mask_fading)
+    encode_image = init_image * expanded_mask if mask is not None else init_image
     model.turbo = batch_size <= 4
     seed = int(seed) if seed != "" else randint(0, 1000000)
     seed_everything(seed)
@@ -138,12 +184,11 @@ def generate(
         model.half()
         modelCS.half()
         modelFS.half()
-        init_image = init_image.half()
+        encode_image = encode_image.half()
 
     tic = time.time()
     os.makedirs(outdir, exist_ok=True)
-    sample_path = os.path.join(
-        outdir, "_".join(re.split(":| \n", prompt)))[:150]
+    sample_path = os.path.join(outdir, "_".join(re.split(":| \n", prompt)))[:150]
     os.makedirs(sample_path, exist_ok=True)
     base_count = len(os.listdir(sample_path))
 
@@ -153,9 +198,9 @@ def generate(
 
     if image is not None:
         modelFS.to(device)
-        init_image = repeat(init_image, "1 ... -> b ...", b=batch_size)
+        encode_image = repeat(encode_image, "1 ... -> b ...", b=batch_size)
         init_latent = modelFS.get_first_stage_encoding(
-            modelFS.encode_first_stage(init_image)
+            modelFS.encode_first_stage(encode_image)
         )
 
         if device != "cpu":
@@ -173,7 +218,7 @@ def generate(
     else:
         precision_scope = nullcontext
 
-    all_samples: List[Tuple[str, int]] = []
+    all_samples: List[Tuple[ImageType, int]] = []
     with torch.no_grad():
         for _ in trange(n_iter, desc="Sampling"):
             for prompts in tqdm(data, desc="data"):
@@ -194,8 +239,7 @@ def generate(
                             weight = weight / totalWeight
                             c = torch.add(
                                 c,
-                                modelCS.get_learned_conditioning(
-                                    subprompts[i]),
+                                modelCS.get_learned_conditioning(subprompts[i]),
                                 alpha=weight,
                             )
                     else:
@@ -254,12 +298,19 @@ def generate(
                         )
                         x_sample_loc = os.path.join(
                             sample_path,
-                            "seed_" + str(img_seed) + "_" +
-                            f"{base_count:05}.png",
+                            "seed_" + str(img_seed) + "_" + f"{base_count:05}.png",
                         )
-                        Image.fromarray(x_sample.astype(
-                            np.uint8)).save(x_sample_loc)
-                        all_samples.append((x_sample_loc, img_seed))
+                        sample = Image.fromarray(x_sample.astype(np.uint8))
+                        final_sample = (
+                            ToPIL(
+                                ToTensor(image).to(device) * (1 - blurred_mask)
+                                + ToTensor(sample).to(device) * blurred_mask
+                            )
+                            if mask is not None
+                            else sample
+                        )
+                        final_sample.save(x_sample_loc)
+                        all_samples.append((final_sample, img_seed))
                         base_count += 1
 
                     if device != "cpu":
@@ -273,11 +324,6 @@ def generate(
                     del x_samples_ddim
                     print("memory_final = ", torch.cuda.memory_allocated() / 1e6)
 
-    if image is not None and (
-        len(image_history) == 0
-        or not np.array_equal(image.getdata(), image_history[-1].getdata())
-    ):
-        image_history.append(image)
     toc = time.time()
 
     time_taken = (toc - tic) / 60.0

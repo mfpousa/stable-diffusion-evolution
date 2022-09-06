@@ -27,5 +27,5 @@ This repo contains a simplified GUI to easily run and use the stable-diffusion m
 3. Place the model.ckpt file into models/ldm/stable-diffusion-v1
 1. Install miniconda3
 2. Open your terminal in the root of the project and run ```conda env create -f environment.yaml```
-3. Bootstrap the application with ```python webui/start.py```
+3. Bootstrap the application with ```streamlit run webui\frontend\streamlit.py```
 5. Profit!
