@@ -92,6 +92,34 @@ def expand_mask(mask: Tensor, radius: int):
 
 def crop(image: ImageType, target_width: int, target_height: int):
     width, height = image.size
+    if width < target_width:
+        growth_factor = target_width / width
+        return crop(
+            image.resize((target_width, int(height * growth_factor))),
+            target_width,
+            target_height,
+        )
+    if height < target_height:
+        growth_factor = target_height / height
+        return crop(
+            image.resize((int(width * growth_factor), target_height)),
+            target_width,
+            target_height,
+        )
+    if width > target_width and height != target_height:
+        shrink_factor = target_width / width
+        return crop(
+            image.resize((target_width, int(height * shrink_factor))),
+            target_width,
+            target_height,
+        )
+    if height > target_height and width != target_width:
+        shrink_factor = target_height / height
+        return crop(
+            image.resize((int(width * shrink_factor), target_height)),
+            target_width,
+            target_height,
+        )
     delta_width = width - target_width
     delta_height = height - target_height
     horizontal_margin = int(delta_width / 2)
@@ -103,7 +131,7 @@ def crop(image: ImageType, target_width: int, target_height: int):
             target_width + horizontal_margin,
             target_height + vertical_margin,
         )
-    )
+    ).convert("RGB")
 
 
 def load_mask(mask: ImageType, target_width: int, target_height: int):

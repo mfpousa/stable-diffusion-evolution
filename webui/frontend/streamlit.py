@@ -9,6 +9,13 @@ from torchvision.transforms import transforms
 ToTensor = transforms.ToTensor()
 ToPIL = transforms.ToPILImage()
 
+masking_render_full = False
+masking_render_padding = 100
+mask_fading = 10
+prompt = ""
+seed = None
+mask = None
+strength = None
 
 def merge(above: ImageType, below: ImageType):
     above_tensor = ToTensor(above)
@@ -61,15 +68,6 @@ def override_image(new_image):
 
 def clear_image_override():
     st.session_state.image = None
-
-
-masking_render_full = False
-masking_render_padding = 100
-mask_fading = 10
-prompt = ""
-seed = None
-mask = None
-strength = None
 
 main_tab, editors_tab = st.tabs(["Main", "Editors"])
 with main_tab:
