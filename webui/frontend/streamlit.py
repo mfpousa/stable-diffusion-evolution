@@ -10,12 +10,12 @@ ToTensor = transforms.ToTensor()
 ToPIL = transforms.ToPILImage()
 
 masking_render_full = False
-masking_render_padding = 100
-mask_fading = 10
+masking_render_padding = mask_fading = 10
 prompt = ""
 seed = None
 mask = None
 strength = None
+
 
 def merge(above: ImageType, below: ImageType):
     above_tensor = ToTensor(above)
@@ -69,6 +69,7 @@ def override_image(new_image):
 def clear_image_override():
     st.session_state.image = None
 
+
 main_tab, editors_tab = st.tabs(["Main", "Editors"])
 with main_tab:
     inputs_column_left, inputs_column_right = st.columns(2, gap="medium")
@@ -78,7 +79,9 @@ with editors_tab:
 with main_tab:
     with inputs_column_left:
         input_image = st.file_uploader(
-            "Input image", type=["png", "jpg"], accept_multiple_files=False
+            "Input image",
+            type=["png", "jpg", "jpeg", "jfif"],
+            accept_multiple_files=False,
         )
         image = (
             st.session_state.get("image")
